@@ -249,10 +249,12 @@ let intentCall = (
           } else if intent.nextAction.type_ === "qr_code_information" {
             let qrData = intent.nextAction.image_data_url->Belt.Option.getWithDefault("")
             let headerObj = Js.Dict.empty()
-            headers->Js.Array2.forEach(entries => {
-              let (x, val) = entries
-              Js.Dict.set(headerObj, x, val->Js.Json.string)
-            })
+            headers->Js.Array2.forEach(
+              entries => {
+                let (x, val) = entries
+                Js.Dict.set(headerObj, x, val->Js.Json.string)
+              },
+            )
             let metaData =
               [
                 ("qrData", qrData->Js.Json.string),
@@ -319,7 +321,11 @@ let intentCall = (
             handlePostMessage(message)
           } else {
             switch paymentType {
-            | Card => postSubmitResponse(~jsonData=data, ~url=url.href)
+            | Card
+            | Gpay
+            | Applepay
+            | Paypal =>
+              postSubmitResponse(~jsonData=data, ~url=url.href)
             | _ => openUrl(url.href)
             }
           }
@@ -342,10 +348,14 @@ let intentCall = (
             )
           }
           if intent.status === "failed" {
-            setIsManualRetryEnabled(._ => intent.manualRetryAllowed)
+            setIsManualRetryEnabled(. _ => intent.manualRetryAllowed)
           }
           switch paymentType {
-          | Card => postSubmitResponse(~jsonData=data, ~url=url.href)
+          | Card
+          | Gpay
+          | Applepay
+          | Paypal =>
+            postSubmitResponse(~jsonData=data, ~url=url.href)
           | _ => openUrl(url.href)
           }
         } else {
