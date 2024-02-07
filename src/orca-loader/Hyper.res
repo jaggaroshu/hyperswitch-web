@@ -319,7 +319,7 @@ let make = (publishableKey, options: option<Js.Json.t>, analyticsInfo: option<Js
         })
       }
 
-      let oneClickConfirmPayment = (payload, result: bool) => {
+      let confirmOneClickPayment = (payload, result: bool) => {
         let confirmParams =
           payload
           ->Js.Json.decodeObject
@@ -338,12 +338,6 @@ let make = (publishableKey, options: option<Js.Json.t>, analyticsInfo: option<Js
           ->Belt.Option.flatMap(Js.Json.decodeString)
           ->Belt.Option.getWithDefault("")
         Js.Promise.make((~resolve, ~reject as _) => {
-          iframeRef.contents->Js.Array2.forEach(ifR => {
-            ifR->Window.iframePostMessage(
-              [("oneClickDoSubmit", result->Js.Json.boolean)]->Js.Dict.fromArray,
-            )
-          })
-
           let handleMessage = (event: Types.event) => {
             let json = event.data->eventToJson
             let dict = json->getDictFromJson
@@ -388,6 +382,11 @@ let make = (publishableKey, options: option<Js.Json.t>, analyticsInfo: option<Js
             | None => ()
             }
           }
+          iframeRef.contents->Js.Array2.forEach(ifR => {
+            ifR->Window.iframePostMessage(
+              [("oneClickDoSubmit", result->Js.Json.boolean)]->Js.Dict.fromArray,
+            )
+          })
           addSmartEventListener("message", handleMessage, "onSubmit")
         })
       }
@@ -533,7 +532,7 @@ let make = (publishableKey, options: option<Js.Json.t>, analyticsInfo: option<Js
       }
 
       let returnObject = {
-        oneClickConfirmPayment,
+        confirmOneClickPayment,
         confirmPayment,
         elements,
         widgets: elements,
