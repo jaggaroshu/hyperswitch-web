@@ -31,6 +31,8 @@ let make = (
     thirdPartySessionObj->Belt.Option.isSome
   }, [sessionObj])
 
+  let areOneClickWalletsRendered = Recoil.useSetRecoilState(RecoilAtoms.areOneClickWalletsRendered)
+
   let googlePayPaymentMethodType = switch PaymentMethodsRecord.getPaymentMethodTypeFromList(
     ~list,
     ~paymentMethod="wallet",
@@ -194,6 +196,7 @@ let make = (
       paymentExperience == PaymentMethodsRecord.RedirectToURL) &&
       isWallet
     ) {
+      setIsShowOrPayUsing(._ => true)
       addGooglePayButton()
     }
     None
@@ -228,7 +231,13 @@ let make = (
     paymentExperience == PaymentMethodsRecord.RedirectToURL ||
     isDelayedSessionToken) && isWallet
 
-  setIsShowOrPayUsing(.prev => prev || isRenderGooglePayButton)
+  React.useEffect1(() => {
+    areOneClickWalletsRendered(.prev => {
+      ...prev,
+      isGooglePay: isRenderGooglePayButton,
+    })
+    None
+  }, [isRenderGooglePayButton])
 
   let submitCallback = React.useCallback((ev: Window.event) => {
     if !isWallet {

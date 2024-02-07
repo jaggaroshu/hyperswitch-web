@@ -17,7 +17,10 @@ let make = (
   let optionPaymentMethodDetails =
     list
     ->PaymentMethodsRecord.buildFromPaymentList
-    ->Js.Array2.find(x => x.paymentMethodName === paymentMethodName)
+    ->Js.Array2.find(x =>
+      x.paymentMethodName ===
+        PaymentUtils.getPaymentMethodName(~paymentMethodType=x.methodType, ~paymentMethodName)
+    )
   let paymentMethodDetails =
     optionPaymentMethodDetails->Belt.Option.getWithDefault(
       PaymentMethodsRecord.defaultPaymentMethodContent,
@@ -116,15 +119,13 @@ let make = (
   <div
     className="flex flex-col animate-slowShow"
     style={ReactDOMStyle.make(~gridGap=themeObj.spacingGridColumn, ())}>
-    <RenderIf condition={list.payment_methods->Js.Array.length !== 0}>
-      <DynamicFields
-        paymentType
-        list
-        paymentMethod=paymentMethodDetails.methodType
-        paymentMethodType=paymentMethodDetails.paymentMethodName
-        setRequiredFieldsBody
-      />
-    </RenderIf>
+    <DynamicFields
+      paymentType
+      list
+      paymentMethod=paymentMethodDetails.methodType
+      paymentMethodType=paymentMethodName
+      setRequiredFieldsBody
+    />
   </div>
 }
 

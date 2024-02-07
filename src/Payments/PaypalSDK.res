@@ -4,6 +4,7 @@ let make = (~sessionObj: SessionsType.token, ~list: PaymentMethodsRecord.list) =
     RecoilAtoms.keys,
   )
   let (loggerState, _setLoggerState) = Recoil.useRecoilState(RecoilAtoms.loggerAtom)
+  let areOneClickWalletsRendered = Recoil.useSetRecoilState(RecoilAtoms.areOneClickWalletsRendered)
 
   let token = sessionObj.token
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), Paypal)

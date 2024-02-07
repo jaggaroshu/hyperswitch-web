@@ -8,42 +8,41 @@ let make = (
   ~setRequiredFieldsBody,
   ~isSavedCardFlow=false,
   ~savedCards=[]: array<PaymentType.customerMethods>,
+  ~cardProps=None,
+  ~expiryProps=None,
+  ~cvcProps=None,
+  ~isBancontact=false,
 ) => {
   React.useEffect1(() => {
     setRequiredFieldsBody(_ => Js.Dict.empty())
     None
   }, [paymentMethodType])
 
+  let {billingAddress} = Recoil.useRecoilValueFromAtom(optionAtom)
+
   //<...>//
   let paymentMethodTypes =
     PaymentMethodsRecord.getPaymentMethodTypeFromList(
       ~list,
       ~paymentMethod,
-      ~paymentMethodType,
+      ~paymentMethodType=PaymentUtils.getPaymentMethodName(
+        ~paymentMethodType=paymentMethod,
+        ~paymentMethodName=paymentMethodType,
+      ),
     )->Belt.Option.getWithDefault(PaymentMethodsRecord.defaultPaymentMethodType)
 
-  let requiredFields = if paymentMethod === "card" {
-    let creditPaymentMethodsRecord =
-      PaymentMethodsRecord.getPaymentMethodTypeFromList(
-        ~list,
-        ~paymentMethod,
-        ~paymentMethodType="credit",
-      )->Belt.Option.getWithDefault(PaymentMethodsRecord.defaultPaymentMethodType)
+  let requiredFieldsWithBillingDetails = if paymentMethod === "card" {
     paymentMethodTypes.required_fields
-    ->Utils.getDictFromJson
-    ->Js.Dict.entries
-    ->Js.Array2.concat(
-      creditPaymentMethodsRecord.required_fields->Utils.getDictFromJson->Js.Dict.entries,
-    )
-    ->Js.Dict.fromArray
-    ->Js.Json.object_
   } else if (
     PaymentMethodsRecord.dynamicFieldsEnabledPaymentMethods->Js.Array2.includes(paymentMethodType)
   ) {
     paymentMethodTypes.required_fields
   } else {
-    Js.Json.null
+    []
   }
+
+  let requiredFields =
+    requiredFieldsWithBillingDetails->DynamicFieldsUtils.removeBillingDetailsIfUseBillingAddress
 
   let isAllStoredCardsHaveName = React.useMemo1(() => {
     PaymentType.getIsAllStoredCardsHaveName(savedCards)
@@ -58,9 +57,7 @@ let make = (
       ~isAllStoredCardsHaveName,
       (),
     )
-    ->Utils.removeDuplicate
-    ->Js.Array2.filter(item => item !== None)
-    ->PaymentUtils.updateDynamicFields()
+    ->DynamicFieldsUtils.updateDynamicFields()
     ->Belt.SortArray.stableSortBy(PaymentMethodsRecord.sortPaymentMethodFields)
   //<...>//
 
@@ -68,10 +65,6 @@ let make = (
 
   let logger = Recoil.useRecoilValueFromAtom(loggerAtom)
 
-  let setAreRequiredFieldsValid = Recoil.useSetRecoilState(areRequiredFieldsValid)
-  let setAreRequiredFieldsEmpty = Recoil.useSetRecoilState(areRequiredFieldsEmpty)
-
-  let (email, setEmail) = Recoil.useLoggedRecoilState(userEmailAddress, "email", logger)
   let (line1, setLine1) = Recoil.useLoggedRecoilState(userAddressline1, "line1", logger)
   let (line2, setLine2) = Recoil.useLoggedRecoilState(userAddressline2, "line2", logger)
   let (city, setCity) = Recoil.useLoggedRecoilState(userAddressCity, "city", logger)
@@ -82,15 +75,7 @@ let make = (
     logger,
   )
   let (postalCodes, setPostalCodes) = React.useState(_ => [PostalCodeType.defaultPostalCode])
-  let (fullName, setFullName) = Recoil.useLoggedRecoilState(userFullName, "fullName", logger)
-  let (blikCode, setBlikCode) = Recoil.useLoggedRecoilState(userBlikCode, "blikCode", logger)
-  let (phone, setPhone) = Recoil.useLoggedRecoilState(userPhoneNumber, "phone", logger)
   let (currency, setCurrency) = Recoil.useLoggedRecoilState(userCurrency, "currency", logger)
-  let (billingName, setBillingName) = Recoil.useLoggedRecoilState(
-    userBillingName,
-    "billingName",
-    logger,
-  )
   let line1Ref = React.useRef(Js.Nullable.null)
   let line2Ref = React.useRef(Js.Nullable.null)
   let cityRef = React.useRef(Js.Nullable.null)
@@ -114,10 +99,55 @@ let make = (
     setCountry(. val)
   }
 
+  let (
+    isCardValid,
+    setIsCardValid,
+    cardNumber,
+    changeCardNumber,
+    handleCardBlur,
+    cardRef,
+    icon,
+    cardError,
+    _,
+    maxCardLength,
+  ) =
+    cardProps->CardUtils.getCardDetailsFromCardProps
+
+  let (
+    isExpiryValid,
+    setIsExpiryValid,
+    cardExpiry,
+    changeCardExpiry,
+    handleExpiryBlur,
+    expiryRef,
+    _,
+    expiryError,
+    _,
+  ) =
+    expiryProps->CardUtils.getExpiryDetailsFromExpiryProps
+
+  let (
+    isCVCValid,
+    setIsCVCValid,
+    cvcNumber,
+    _,
+    changeCVCNumber,
+    handleCVCBlur,
+    cvcRef,
+    _,
+    cvcError,
+    _,
+  ) =
+    cvcProps->CardUtils.getCvcDetailsFromCvcProps
+
+  let isCvcValidValue = CardUtils.getBoolOptionVal(isCVCValid)
+  let (cardEmpty, cardComplete, cardInvalid) = CardUtils.useCardDetails(
+    ~cvcNumber,
+    ~isCVCValid,
+    ~isCvcValidValue,
+  )
+
   React.useEffect0(() => {
-    let clientTimeZone = Utils.dateTimeFormat(.).resolvedOptions(.).timeZone
-    let clientCountry = Utils.getClientCountry(clientTimeZone)
-    setCountry(_ => clientCountry.countryName)
     let bank = bankNames->Belt.Array.get(0)->Belt.Option.getWithDefault("")
     setSelectedBank(_ => bank)
     None
@@ -186,288 +216,42 @@ let make = (
     }
   }
 
-  React.useEffect7(() => {
-    let areRequiredFieldsValid = fieldsArr->Js.Array2.reduce((acc, paymentMethodFields) => {
-      acc &&
-      switch paymentMethodFields {
-      | Email => email.isValid
-      | FullName => Some(fullName.value !== "")
-      | Country => Some(country !== "" || countryNames->Belt.Array.length === 0)
-      | AddressCountry(countryArr) => Some(country !== "" || countryArr->Belt.Array.length === 0)
-      | BillingName => Some(billingName.value !== "")
-      | AddressLine1 => Some(line1.value !== "")
-      | Bank => Some(selectedBank !== "" || bankNames->Belt.Array.length === 0)
-      | PhoneNumber => Some(phone.value !== "")
-      | StateAndCity => Some(state.value !== "" && city.value !== "")
-      | CountryAndPincode(countryArr) =>
-        Some((country !== "" || countryArr->Belt.Array.length === 0) && postalCode.value !== "")
-      | AddressCity => Some(city.value !== "")
-      | AddressPincode => Some(postalCode.value !== "")
-      | AddressState => Some(state.value !== "")
-      | BlikCode => Some(blikCode.value !== "")
-      | Currency(currencyArr) => Some(currency !== "" || currencyArr->Belt.Array.length === 0)
-      | AddressLine2
-      | SpecialField(_)
-      | InfoElement
-      | None =>
-        Some(true)
-      }->Belt.Option.getWithDefault(false)
-    }, true)
-    setAreRequiredFieldsValid(._ => areRequiredFieldsValid)
+  DynamicFieldsUtils.useRequiredFieldsEmptyAndValid(
+    ~requiredFields,
+    ~fieldsArr,
+    ~countryNames,
+    ~bankNames,
+    ~isCardValid,
+    ~isExpiryValid,
+    ~isCVCValid,
+    ~cardNumber,
+    ~cardExpiry,
+    ~cvcNumber,
+  )
 
-    let areRequiredFieldsEmpty = fieldsArr->Js.Array2.reduce((acc, paymentMethodFields) => {
-      acc ||
-      switch paymentMethodFields {
-      | Email => email.value === ""
-      | FullName => fullName.value === ""
-      | Country => country === "" && countryNames->Belt.Array.length > 0
-      | AddressCountry(countryArr) => country === "" && countryArr->Belt.Array.length > 0
-      | BillingName => billingName.value === ""
-      | AddressLine1 => line1.value === ""
-      | Bank => selectedBank === "" && bankNames->Belt.Array.length > 0
-      | StateAndCity => city.value === "" || state.value === ""
-      | CountryAndPincode(countryArr) =>
-        (country === "" && countryArr->Belt.Array.length > 0) || postalCode.value === ""
-      | PhoneNumber => phone.value === ""
-      | AddressCity => city.value === ""
-      | AddressPincode => postalCode.value === ""
-      | AddressState => state.value === ""
-      | BlikCode => blikCode.value === ""
-      | Currency(currencyArr) => currency === "" && currencyArr->Belt.Array.length > 0
-      | AddressLine2
-      | SpecialField(_)
-      | InfoElement
-      | None => false
-      }
-    }, false)
-    setAreRequiredFieldsEmpty(._ => areRequiredFieldsEmpty)
-    None
-  }, (
-    fieldsArr,
-    currency,
-    fullName.value,
-    country,
-    billingName.value,
-    line1.value,
-    (
-      email,
-      line2.value,
-      selectedBank,
-      phone.value,
-      city.value,
-      postalCode.value,
-      state.value,
-      blikCode.value,
-    ),
-  ))
+  DynamicFieldsUtils.useSetInitialRequiredFields(
+    ~requiredFields={
+      billingAddress.usePrefilledValues === Auto ? requiredFieldsWithBillingDetails : requiredFields
+    },
+    ~paymentMethodType,
+  )
 
-  let requiredFieldsType =
-    requiredFields
-    ->Utils.getDictFromJson
-    ->Js.Dict.values
-    ->Js.Array2.map(item =>
-      item->Utils.getDictFromJson->PaymentMethodsRecord.getRequiredFieldsFromJson
-    )
-
-  React.useEffect0(() => {
-    let getNameValue = (item: PaymentMethodsRecord.required_fields) => {
-      requiredFieldsType
-      ->Js.Array2.filter(requiredFields => requiredFields.field_type === item.field_type)
-      ->Js.Array2.reduce((acc, item) => {
-        let requiredFieldsArr = item.required_field->Js.String2.split(".")
-        switch requiredFieldsArr
-        ->Belt.Array.get(requiredFieldsArr->Belt.Array.length - 1)
-        ->Belt.Option.getWithDefault("") {
-        | "first_name" => item.value->Js.String2.concat(acc)
-        | "last_name" => acc->Js.String2.concatMany([" ", item.value])
-        | _ => acc
-        }
-      }, "")
-      ->Js.String2.trim
-    }
-
-    let setFields = (
-      setMethod: (. RecoilAtomTypes.field => RecoilAtomTypes.field) => unit,
-      field: RecoilAtomTypes.field,
-      item: PaymentMethodsRecord.required_fields,
-      isNameField,
-    ) => {
-      if isNameField && field.value === "" {
-        setMethod(.prev => {
-          ...prev,
-          value: getNameValue(item),
-        })
-      } else if field.value === "" {
-        setMethod(.prev => {
-          ...prev,
-          value: item.value,
-        })
-      }
-    }
-
-    requiredFieldsType->Js.Array2.forEach(requiredField => {
-      let value = requiredField.value
-      switch requiredField.field_type {
-      | Email => {
-          let emailValue = email.value
-          setFields(setEmail, email, requiredField, false)
-          if emailValue === "" {
-            let newEmail: RecoilAtomTypes.field = {
-              value: value,
-              isValid: None,
-              errorString: "",
-            }
-            Utils.checkEmailValid(newEmail, setEmail)
-          }
-        }
-      | FullName => setFields(setFullName, fullName, requiredField, true)
-      | AddressLine1 => setFields(setLine1, line1, requiredField, false)
-      | AddressLine2 => setFields(setLine2, line2, requiredField, false)
-      | StateAndCity => {
-          setFields(setState, state, requiredField, false)
-          setFields(setCity, city, requiredField, false)
-        }
-      | CountryAndPincode(_) => {
-          setFields(setPostalCode, postalCode, requiredField, false)
-          if value !== "" && country === "" {
-            let countryCode =
-              Country.getCountry(paymentMethodType)
-              ->Js.Array2.filter(item => item.isoAlpha2 === value)
-              ->Belt.Array.get(0)
-              ->Belt.Option.getWithDefault(Country.defaultTimeZone)
-            setCountry(_ => countryCode.countryName)
-          }
-        }
-      | AddressState => setFields(setState, state, requiredField, false)
-      | AddressCity => setFields(setCity, city, requiredField, false)
-      | AddressPincode => setFields(setPostalCode, postalCode, requiredField, false)
-      | PhoneNumber => setFields(setPhone, phone, requiredField, false)
-      | BlikCode => setFields(setBlikCode, blikCode, requiredField, false)
-      | BillingName => setFields(setBillingName, billingName, requiredField, true)
-      | Country
-      | AddressCountry(_) =>
-        if value !== "" && country === "" {
-          let countryCode =
-            Country.getCountry(paymentMethodType)
-            ->Js.Array2.filter(item => item.isoAlpha2 === value)
-            ->Belt.Array.get(0)
-            ->Belt.Option.getWithDefault(Country.defaultTimeZone)
-          setCountry(_ => countryCode.countryName)
-        }
-      | Currency(_) =>
-        if value !== "" && currency === "" {
-          setCurrency(_ => value)
-        }
-      | Bank =>
-        if value !== "" && selectedBank === "" {
-          setSelectedBank(_ => value)
-        }
-      | StateAndCity
-      | CountryAndPincode(_)
-      | SpecialField(_)
-      | InfoElement
-      | None => ()
-      }
-    })
-    None
-  })
-
-  React.useEffect1(() => {
-    let getName = (item: PaymentMethodsRecord.required_fields, field: RecoilAtomTypes.field) => {
-      let fieldNameArr = field.value->Js.String2.split(" ")
-      let requiredFieldsArr = item.required_field->Js.String2.split(".")
-      switch requiredFieldsArr
-      ->Belt.Array.get(requiredFieldsArr->Belt.Array.length - 1)
-      ->Belt.Option.getWithDefault("") {
-      | "first_name" => fieldNameArr->Belt.Array.get(0)->Belt.Option.getWithDefault(field.value)
-      | "last_name" => fieldNameArr->Belt.Array.sliceToEnd(1)->Js.Array2.reduce((acc, item) => {
-          acc ++ item
-        }, "")
-      | _ => field.value
-      }
-    }
-
-    let requiredFieldsBody =
-      requiredFieldsType
-      ->Js.Array2.filter(item => item.field_type !== None)
-      ->Js.Array2.reduce((acc, item) => {
-        let value = switch item.field_type {
-        | Email => email.value
-        | FullName => getName(item, fullName)
-        | AddressLine1 => line1.value
-        | AddressLine2 => line2.value
-        | AddressCity => city.value
-        | AddressPincode => postalCode.value
-        | AddressState => state.value
-        | BlikCode => blikCode.value
-        | PhoneNumber => phone.value
-        | Currency(_) => currency
-        | Country => country
-        | Bank => selectedBank
-        | BillingName => getName(item, billingName)
-        | AddressCountry(_) => {
-            let countryCode =
-              Country.getCountry(paymentMethodType)
-              ->Js.Array2.filter(item => item.countryName === country)
-              ->Belt.Array.get(0)
-              ->Belt.Option.getWithDefault(Country.defaultTimeZone)
-            countryCode.isoAlpha2
-          }
-        | StateAndCity
-        | CountryAndPincode(_)
-        | SpecialField(_)
-        | InfoElement
-        | _ => ""
-        }
-        switch item.field_type {
-        | StateAndCity =>
-          acc->Js.Dict.set("billing.address.city", city.value->Js.Json.string)
-          acc->Js.Dict.set("billing.address.state", state.value->Js.Json.string)
-        | CountryAndPincode(_) =>
-          acc->Js.Dict.set("billing.address.country", city.value->Js.Json.string)
-          acc->Js.Dict.set("billing.address.zip", postalCode.value->Js.Json.string)
-        | _ => ()
-        }
-        if (
-          isSavedCardFlow &&
-          (item.field_type === BillingName || item.field_type === FullName) &&
-          item.display_name === "card_holder_name" &&
-          item.required_field === "payment_method_data.card.card_holder_name"
-        ) {
-          if !isAllStoredCardsHaveName {
-            acc->Js.Dict.set(
-              "payment_method_data.card_token.card_holder_name",
-              value === "" ? Js.Json.null : value->Js.Json.string,
-            )
-          }
-        } else {
-          acc->Js.Dict.set(item.required_field, value->Js.Json.string)
-        }
-        acc
-      }, Js.Dict.empty())
-
-    setRequiredFieldsBody(_ => requiredFieldsBody)
-    None
-  }, [
-    fullName.value,
-    email.value,
-    line1.value,
-    line2.value,
-    city.value,
-    postalCode.value,
-    state.value,
-    blikCode.value,
-    phone.value,
-    currency,
-    billingName.value,
-    country,
-  ])
+  DynamicFieldsUtils.useRequiredFieldsBody(
+    ~requiredFields,
+    ~paymentMethodType,
+    ~cardNumber,
+    ~cardExpiry,
+    ~cvcNumber,
+    ~isSavedCardFlow,
+    ~isAllStoredCardsHaveName,
+    ~setRequiredFieldsBody,
+  )
 
   let bottomElement = <InfoElement />
 
   let getCustomFieldName = (item: PaymentMethodsRecord.paymentMethodsFields) => {
     if (
-      requiredFieldsType
+      requiredFields
       ->Js.Array2.filter(requiredFieldType =>
         requiredFieldType.field_type === item &&
           requiredFieldType.display_name === "card_holder_name"
@@ -480,217 +264,403 @@ let make = (
     }
   }
 
+  let dynamicFieldsToRenderOutsideBilling =
+    fieldsArr->Js.Array2.filter(field =>
+      field->DynamicFieldsUtils.isFieldTypeToRenderOutsideBilling
+    )
+
+  let dynamicFieldsToRenderInsideBilling =
+    fieldsArr->Js.Array2.filter(field =>
+      !(field->DynamicFieldsUtils.isFieldTypeToRenderOutsideBilling)
+    )
+
+  let isInfoElementPresent = dynamicFieldsToRenderInsideBilling->Js.Array2.includes(InfoElement)
+
+  let isOnlyInfoElementPresent =
+    dynamicFieldsToRenderInsideBilling->Js.Array2.length === 1 && isInfoElementPresent
+
+  let isRenderDynamicFieldsInsideBilling =
+    dynamicFieldsToRenderInsideBilling->Js.Array2.length > 0 &&
+      (dynamicFieldsToRenderInsideBilling->Js.Array2.length > 1 || !isOnlyInfoElementPresent)
+
   {
     fieldsArr->Js.Array2.length > 0
-      ? <div
-          className="dynamic__fields p-2"
-          style={ReactDOMStyle.make(
-            ~border=`1px solid ${themeObj.borderColor}`,
-            ~borderRadius=themeObj.borderRadius,
-            ~margin=`10px 0`,
-            (),
-          )}>
-          {React.string("Billing Details")}
-          <div className="p-2 flex flex-col gap-2">
-            {fieldsArr
-            ->Js.Array2.mapi((item, index) => {
-              <div
-                key={index->Js.Int.toString} className="flex flex-col w-full place-content-between">
-                {switch item {
-                | FullName =>
-                  <FullNamePaymentInput paymentType customFieldName={item->getCustomFieldName} />
-                | BillingName =>
-                  <BillingNamePaymentInput paymentType customFieldName={item->getCustomFieldName} />
-                | Email => <EmailPaymentInput paymentType />
-                | PhoneNumber => <PhoneNumberPaymentInput />
-                | StateAndCity =>
-                  <div className="state__city flex gap-1">
-                    <PaymentField
-                      fieldName=localeString.cityLabel
-                      setValue={setCity}
-                      value=city
-                      onChange={ev => {
-                        setCity(.prev => {
-                          ...prev,
-                          value: ReactEvent.Form.target(ev)["value"],
-                        })
-                      }}
-                      paymentType
-                      type_="text"
-                      name="city"
-                      inputRef=cityRef
-                      placeholder=localeString.cityLabel
-                    />
-                    {switch stateJson {
-                    | Some(options) =>
-                      <PaymentDropDownField
-                        fieldName=localeString.stateLabel
-                        value=state
-                        setValue=setState
-                        options={options->Utils.getStateNames({
-                          value: country,
-                          isValid: None,
-                          errorString: "",
-                        })}
+      ? <>
+          {dynamicFieldsToRenderOutsideBilling
+          ->Js.Array2.mapi((item, index) => {
+            <div
+              key={`outside-billing-${index->Js.Int.toString}`}
+              className="flex flex-col w-full place-content-between"
+              style={ReactDOMStyle.make(
+                ~marginTop=index !== 0 || paymentMethod === "card"
+                  ? themeObj.spacingGridColumn
+                  : "",
+                ~gridColumnGap=themeObj.spacingGridRow,
+                (),
+              )}>
+              {switch item {
+              | CardNumber =>
+                <PaymentInputField
+                  fieldName=localeString.cardNumberLabel
+                  isValid=isCardValid
+                  setIsValid=setIsCardValid
+                  value=cardNumber
+                  onChange=changeCardNumber
+                  onBlur=handleCardBlur
+                  rightIcon={icon}
+                  errorString=cardError
+                  paymentType
+                  type_="tel"
+                  appearance=config.appearance
+                  maxLength=maxCardLength
+                  inputRef=cardRef
+                  placeholder="1234 1234 1234 1234"
+                />
+              | CardExpiryMonth
+              | CardExpiryYear
+              | CardExpiryMonthAndYear =>
+                <PaymentInputField
+                  fieldName=localeString.validThruText
+                  isValid=isExpiryValid
+                  setIsValid=setIsExpiryValid
+                  value=cardExpiry
+                  onChange=changeCardExpiry
+                  onBlur=handleExpiryBlur
+                  errorString=expiryError
+                  paymentType
+                  type_="tel"
+                  appearance=config.appearance
+                  maxLength=7
+                  inputRef=expiryRef
+                  placeholder="MM / YY"
+                />
+              | CardCvc =>
+                <PaymentInputField
+                  fieldName=localeString.cvcTextLabel
+                  isValid=isCVCValid
+                  setIsValid=setIsCVCValid
+                  value=cvcNumber
+                  onChange=changeCVCNumber
+                  onBlur=handleCVCBlur
+                  errorString=cvcError
+                  paymentType
+                  rightIcon={CardUtils.setRightIconForCvc(
+                    ~cardEmpty,
+                    ~cardInvalid,
+                    ~color=themeObj.colorIconCardCvcError,
+                    ~cardComplete,
+                  )}
+                  appearance=config.appearance
+                  type_="tel"
+                  className="tracking-widest w-full"
+                  maxLength=4
+                  inputRef=cvcRef
+                  placeholder="123"
+                />
+              | CardExpiryAndCvc =>
+                <div className="flex gap-10">
+                  <PaymentInputField
+                    fieldName=localeString.validThruText
+                    isValid=isExpiryValid
+                    setIsValid=setIsExpiryValid
+                    value=cardExpiry
+                    onChange=changeCardExpiry
+                    onBlur=handleExpiryBlur
+                    errorString=expiryError
+                    paymentType
+                    type_="tel"
+                    appearance=config.appearance
+                    maxLength=7
+                    inputRef=expiryRef
+                    placeholder="MM / YY"
+                  />
+                  <PaymentInputField
+                    fieldName=localeString.cvcTextLabel
+                    isValid=isCVCValid
+                    setIsValid=setIsCVCValid
+                    value=cvcNumber
+                    onChange=changeCVCNumber
+                    onBlur=handleCVCBlur
+                    errorString=cvcError
+                    paymentType
+                    rightIcon={CardUtils.setRightIconForCvc(
+                      ~cardEmpty,
+                      ~cardInvalid,
+                      ~color=themeObj.colorIconCardCvcError,
+                      ~cardComplete,
+                    )}
+                    appearance=config.appearance
+                    type_="tel"
+                    className="tracking-widest w-full"
+                    maxLength=4
+                    inputRef=cvcRef
+                    placeholder="123"
+                  />
+                </div>
+              | Currency(currencyArr) =>
+                <DropdownField
+                  appearance=config.appearance
+                  fieldName=localeString.currencyLabel
+                  value=currency
+                  setValue=setCurrency
+                  disabled=false
+                  options=currencyArr
+                />
+              | Email
+              | FullName
+              | InfoElement
+              | Country
+              | Bank
+              | None
+              | BillingName
+              | PhoneNumber
+              | AddressLine1
+              | AddressLine2
+              | AddressCity
+              | StateAndCity
+              | AddressPincode
+              | AddressState
+              | BlikCode
+              | SpecialField(_)
+              | CountryAndPincode(_)
+              | AddressCountry(_) => React.null
+              }}
+            </div>
+          })
+          ->React.array}
+          <RenderIf condition={isRenderDynamicFieldsInsideBilling}>
+            <div
+              className="p-2"
+              style={ReactDOMStyle.make(
+                ~border=`1px solid ${themeObj.borderColor}`,
+                ~borderRadius=themeObj.borderRadius,
+                ~margin=`10px 0`,
+                (),
+              )}>
+              {React.string("Billing Details")}
+              <div className="p-2 flex flex-col gap-2">
+                {dynamicFieldsToRenderInsideBilling
+                ->Js.Array2.mapi((item, index) => {
+                  <div
+                    key={`inside-billing-${index->Js.Int.toString}`}
+                    className="flex flex-col w-full place-content-between">
+                    {switch item {
+                    | FullName =>
+                      <FullNamePaymentInput
+                        paymentType
+                        customFieldName={item->getCustomFieldName}
+                        optionalRequiredFields={Some(requiredFields)}
                       />
+                    | BillingName =>
+                      <BillingNamePaymentInput
+                        paymentType
+                        customFieldName={item->getCustomFieldName}
+                        optionalRequiredFields={Some(requiredFields)}
+                      />
+                    | Email => <EmailPaymentInput paymentType />
+                    | PhoneNumber => <PhoneNumberPaymentInput />
+                    | StateAndCity =>
+                      <div className="flex gap-1">
+                        <PaymentField
+                          fieldName=localeString.cityLabel
+                          setValue={setCity}
+                          value=city
+                          onChange={ev => {
+                            setCity(.prev => {
+                              ...prev,
+                              value: ReactEvent.Form.target(ev)["value"],
+                            })
+                          }}
+                          paymentType
+                          type_="text"
+                          name="city"
+                          inputRef=cityRef
+                          placeholder=localeString.cityLabel
+                        />
+                        {switch stateJson {
+                        | Some(options) =>
+                          <PaymentDropDownField
+                            fieldName=localeString.stateLabel
+                            value=state
+                            setValue=setState
+                            options={options->Utils.getStateNames({
+                              value: country,
+                              isValid: None,
+                              errorString: "",
+                            })}
+                          />
+                        | None => React.null
+                        }}
+                      </div>
+                    | CountryAndPincode(countryArr) =>
+                      <div className="flex gap-1">
+                        <DropdownField
+                          appearance=config.appearance
+                          fieldName=localeString.countryLabel
+                          value=country
+                          setValue={setCountry}
+                          disabled=false
+                          options=countryArr
+                        />
+                        <PaymentField
+                          fieldName=localeString.postalCodeLabel
+                          setValue={setPostalCode}
+                          value=postalCode
+                          onBlur=onPostalBlur
+                          onChange=onPostalChange
+                          paymentType
+                          type_="tel"
+                          name="postal"
+                          inputRef=postalRef
+                          placeholder=localeString.postalCodeLabel
+                        />
+                      </div>
+                    | AddressLine1 =>
+                      <PaymentField
+                        fieldName=localeString.line1Label
+                        setValue={setLine1}
+                        value=line1
+                        onChange={ev => {
+                          setLine1(.prev => {
+                            ...prev,
+                            value: ReactEvent.Form.target(ev)["value"],
+                          })
+                        }}
+                        paymentType
+                        type_="text"
+                        name="line1"
+                        inputRef=line1Ref
+                        placeholder=localeString.line1Placeholder
+                      />
+                    | AddressLine2 =>
+                      <PaymentField
+                        fieldName=localeString.line2Label
+                        setValue={setLine2}
+                        value=line2
+                        onChange={ev => {
+                          setLine2(.prev => {
+                            ...prev,
+                            value: ReactEvent.Form.target(ev)["value"],
+                          })
+                        }}
+                        paymentType
+                        type_="text"
+                        name="line2"
+                        inputRef=line2Ref
+                        placeholder=localeString.line2Placeholder
+                      />
+                    | AddressCity =>
+                      <PaymentField
+                        fieldName=localeString.cityLabel
+                        setValue={setCity}
+                        value=city
+                        onChange={ev => {
+                          setCity(.prev => {
+                            ...prev,
+                            value: ReactEvent.Form.target(ev)["value"],
+                          })
+                        }}
+                        paymentType
+                        type_="text"
+                        name="city"
+                        inputRef=cityRef
+                        placeholder=localeString.cityLabel
+                      />
+                    | AddressState =>
+                      switch stateJson {
+                      | Some(options) =>
+                        <PaymentDropDownField
+                          fieldName=localeString.stateLabel
+                          value=state
+                          setValue=setState
+                          options={options->Utils.getStateNames({
+                            value: country,
+                            isValid: None,
+                            errorString: "",
+                          })}
+                        />
+                      | None => React.null
+                      }
+                    | AddressPincode =>
+                      <PaymentField
+                        fieldName=localeString.postalCodeLabel
+                        setValue={setPostalCode}
+                        value=postalCode
+                        onBlur=onPostalBlur
+                        onChange=onPostalChange
+                        paymentType
+                        type_="tel"
+                        name="postal"
+                        inputRef=postalRef
+                        placeholder=localeString.postalCodeLabel
+                      />
+                    | BlikCode => <BlikCodePaymentInput />
+                    | Country =>
+                      <DropdownField
+                        appearance=config.appearance
+                        fieldName=localeString.countryLabel
+                        value=country
+                        setValue=setCountry
+                        disabled=false
+                        options=countryNames
+                      />
+                    | AddressCountry(countryArr) =>
+                      <DropdownField
+                        appearance=config.appearance
+                        fieldName=localeString.countryLabel
+                        value=country
+                        setValue=setCountry
+                        disabled=false
+                        options=countryArr
+                      />
+                    | Bank =>
+                      <DropdownField
+                        appearance=config.appearance
+                        fieldName=localeString.bankLabel
+                        value=selectedBank
+                        setValue=setSelectedBank
+                        disabled=false
+                        options=bankNames
+                      />
+                    | SpecialField(element) => element
+                    | InfoElement =>
+                      <>
+                        <Surcharge list paymentMethod paymentMethodType />
+                        {if fieldsArr->Js.Array2.length > 1 {
+                          bottomElement
+                        } else {
+                          <Block bottomElement />
+                        }}
+                      </>
+                    | CardNumber
+                    | CardExpiryMonth
+                    | CardExpiryYear
+                    | CardExpiryMonthAndYear
+                    | CardCvc
+                    | CardExpiryAndCvc
+                    | Currency(_)
                     | None => React.null
                     }}
                   </div>
-                | CountryAndPincode(countryArr) =>
-                  <div className="country__pincode flex gap-1">
-                    <DropdownField
-                      appearance=config.appearance
-                      fieldName=localeString.countryLabel
-                      value=country
-                      setValue={setCountry}
-                      disabled=false
-                      options=countryArr
-                    />
-                    <PaymentField
-                      fieldName=localeString.postalCodeLabel
-                      setValue={setPostalCode}
-                      value=postalCode
-                      onBlur=onPostalBlur
-                      onChange=onPostalChange
-                      paymentType
-                      type_="tel"
-                      name="postal"
-                      inputRef=postalRef
-                      placeholder=localeString.postalCodeLabel
-                    />
-                  </div>
-                | AddressLine1 =>
-                  <PaymentField
-                    fieldName=localeString.line1Label
-                    setValue={setLine1}
-                    value=line1
-                    onChange={ev => {
-                      setLine1(.prev => {
-                        ...prev,
-                        value: ReactEvent.Form.target(ev)["value"],
-                      })
-                    }}
-                    paymentType
-                    type_="text"
-                    name="line1"
-                    inputRef=line1Ref
-                    placeholder=localeString.line1Placeholder
-                  />
-                | AddressLine2 =>
-                  <PaymentField
-                    fieldName=localeString.line2Label
-                    setValue={setLine2}
-                    value=line2
-                    onChange={ev => {
-                      setLine2(.prev => {
-                        ...prev,
-                        value: ReactEvent.Form.target(ev)["value"],
-                      })
-                    }}
-                    paymentType
-                    type_="text"
-                    name="line2"
-                    inputRef=line2Ref
-                    placeholder=localeString.line2Placeholder
-                  />
-                | AddressCity =>
-                  <PaymentField
-                    fieldName=localeString.cityLabel
-                    setValue={setCity}
-                    value=city
-                    onChange={ev => {
-                      setCity(.prev => {
-                        ...prev,
-                        value: ReactEvent.Form.target(ev)["value"],
-                      })
-                    }}
-                    paymentType
-                    type_="text"
-                    name="city"
-                    inputRef=cityRef
-                    placeholder=localeString.cityLabel
-                  />
-                | AddressState =>
-                  switch stateJson {
-                  | Some(options) =>
-                    <PaymentDropDownField
-                      fieldName=localeString.stateLabel
-                      value=state
-                      setValue=setState
-                      options={options->Utils.getStateNames({
-                        value: country,
-                        isValid: None,
-                        errorString: "",
-                      })}
-                    />
-                  | None => React.null
-                  }
-                | AddressPincode =>
-                  <PaymentField
-                    fieldName=localeString.postalCodeLabel
-                    setValue={setPostalCode}
-                    value=postalCode
-                    onBlur=onPostalBlur
-                    onChange=onPostalChange
-                    paymentType
-                    type_="tel"
-                    name="postal"
-                    inputRef=postalRef
-                    placeholder=localeString.postalCodeLabel
-                  />
-                | BlikCode => <BlikCodePaymentInput />
-                | Currency(currencyArr) =>
-                  <DropdownField
-                    appearance=config.appearance
-                    fieldName=localeString.currencyLabel
-                    value=currency
-                    setValue=setCurrency
-                    disabled=false
-                    options=currencyArr
-                  />
-                | Country =>
-                  <DropdownField
-                    appearance=config.appearance
-                    fieldName=localeString.countryLabel
-                    value=country
-                    setValue=setCountry
-                    disabled=false
-                    options=countryNames
-                  />
-                | AddressCountry(countryArr) =>
-                  <DropdownField
-                    appearance=config.appearance
-                    fieldName=localeString.countryLabel
-                    value=country
-                    setValue=setCountry
-                    disabled=false
-                    options=countryArr
-                  />
-                | Bank =>
-                  <DropdownField
-                    appearance=config.appearance
-                    fieldName=localeString.bankLabel
-                    value=selectedBank
-                    setValue=setSelectedBank
-                    disabled=false
-                    options=bankNames
-                  />
-                | SpecialField(element) => element
-                | InfoElement => <>
-                    <Surcharge list paymentMethod paymentMethodType />
-                    {if fieldsArr->Js.Array2.length > 1 {
-                      bottomElement
-                    } else {
-                      <Block bottomElement />
-                    }}
-                  </>
-                | None => React.null
-                }}
+                })
+                ->React.array}
               </div>
-            })
-            ->React.array}
-          </div>
-        </div>
+            </div>
+          </RenderIf>
+          <RenderIf condition={isOnlyInfoElementPresent}>
+            {<>
+              <Surcharge list paymentMethod paymentMethodType />
+              {if fieldsArr->Js.Array2.length > 1 {
+                bottomElement
+              } else {
+                <Block bottomElement />
+              }}
+            </>}
+          </RenderIf>
+          <RenderIf condition={!isInfoElementPresent}>
+            <Surcharge list paymentMethod paymentMethodType />
+          </RenderIf>
+        </>
       : React.null
   }
 }

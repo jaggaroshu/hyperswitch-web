@@ -75,6 +75,12 @@ let make = (publishableKey, options: option<Js.Json.t>, analyticsInfo: option<Js
       ->Belt.Option.getWithDefault(Js.Json.null)
       ->Utils.getDictFromJson
       ->Utils.getBool("isPreloadEnabled", true)
+    let analyticsMetadata =
+      options
+      ->Belt.Option.getWithDefault(Js.Json.null)
+      ->Utils.getDictFromJson
+      ->Utils.getDictFromObj("analytics")
+      ->Utils.getJsonObjectFromDict("metadata")
     if isPreloadEnabled {
       preloader()
     }
@@ -88,6 +94,7 @@ let make = (publishableKey, options: option<Js.Json.t>, analyticsInfo: option<Js
       ~sessionId=sessionID,
       ~source=Loader,
       ~merchantId=publishableKey,
+      ~metadata=analyticsMetadata,
       (),
     )
     switch options {
@@ -408,7 +415,9 @@ let make = (publishableKey, options: option<Js.Json.t>, analyticsInfo: option<Js
           setIframeRef,
           ~sdkSessionId=sessionID,
           ~publishableKey,
+          ~clientSecret={clientSecretId},
           ~logger=Some(logger),
+          ~analyticsMetadata,
         )
       }
       let confirmCardPaymentFn =

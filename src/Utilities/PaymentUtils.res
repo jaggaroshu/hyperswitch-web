@@ -1,4 +1,9 @@
-let paymentListLookupNew = (list: PaymentMethodsRecord.list, ~order) => {
+let paymentListLookupNew = (
+  list: PaymentMethodsRecord.list,
+  ~order,
+  ~showApplePay,
+  ~showGooglePay,
+) => {
   let pmList = list->PaymentMethodsRecord.buildFromPaymentList
   let walletsList = []
   let walletToBeDisplayedInTabs = [
@@ -18,10 +23,18 @@ let paymentListLookupNew = (list: PaymentMethodsRecord.list, ~order) => {
   ]
   let otherPaymentList = []
   let googlePayFields = pmList->Js.Array2.find(item => item.paymentMethodName === "google_pay")
+  let applePayFields = pmList->Js.Array2.find(item => item.paymentMethodName === "apple_pay")
   switch googlePayFields {
   | Some(val) =>
-    if val.fields->Js.Array2.length > 0 {
+    if val.fields->Js.Array2.length > 0 && showGooglePay {
       walletToBeDisplayedInTabs->Js.Array2.push("google_pay")->ignore
+    }
+  | None => ()
+  }
+  switch applePayFields {
+  | Some(val) =>
+    if val.fields->Js.Array2.length > 0 && showApplePay {
+      walletToBeDisplayedInTabs->Js.Array2.push("apple_pay")->ignore
     }
   | None => ()
   }
@@ -196,85 +209,34 @@ let getDisplayNameAndIcon = (
     ->Belt.Array.get(0)
   switch customNameObj {
   | Some(val) =>
-    val.paymentMethodName === "classic"
+    val.paymentMethodName === "classic" || val.paymentMethodName === "evoucher"
       ? {
-          let id = val.aliasName->Js.String2.split(" ")
-          (
-            val.aliasName,
-            Some(
-              PaymentMethodsRecord.icon(
-                id->Belt.Array.get(0)->Belt.Option.getWithDefault(""),
-                ~size=19,
+          switch val.aliasName {
+          | "" => (defaultName, defaultIcon)
+          | aliasName =>
+            let id = aliasName->Js.String2.split(" ")
+            (
+              aliasName,
+              Some(
+                PaymentMethodsRecord.icon(
+                  id->Belt.Array.get(0)->Belt.Option.getWithDefault(""),
+                  ~size=19,
+                ),
               ),
-            ),
-          )
+            )
+          }
         }
       : (defaultName, defaultIcon)
   | None => (defaultName, defaultIcon)
   }
 }
 
-let updateDynamicFields = (arr: Js.Array2.t<PaymentMethodsRecord.paymentMethodsFields>, ()) => {
-  open PaymentMethodsRecord
-  let hasStateAndCity =
-    arr->Js.Array2.includes(AddressState) && arr->Js.Array2.includes(AddressCity)
-  let hasCountryAndPostal =
-    arr
-    ->Js.Array2.filter(item =>
-      switch item {
-      | AddressCountry(_) => true
-      | AddressPincode => true
-      | _ => false
-      }
-    )
-    ->Js.Array2.length == 2
-
-  let options = arr->Js.Array2.reduce((acc, item) => {
-    acc->Js.Array2.concat(
-      switch item {
-      | AddressCountry(val) => val
-      | _ => [""]
-      },
-    )
-  }, [""])
-
-  let newArr = {
-    switch (hasStateAndCity, hasCountryAndPostal) {
-    | (true, true) => {
-        arr->Js.Array2.push(StateAndCity)->ignore
-        arr->Js.Array2.push(CountryAndPincode(options))->ignore
-        arr->Js.Array2.filter(item =>
-          switch item {
-          | AddressCity
-          | AddressPincode
-          | AddressState
-          | AddressCountry(_) => false
-          | _ => true
-          }
-        )
-      }
-    | (true, false) => {
-        arr->Js.Array2.push(StateAndCity)->ignore
-        arr->Js.Array2.filter(item =>
-          switch item {
-          | AddressCity
-          | AddressState => false
-          | _ => true
-          }
-        )
-      }
-    | (false, true) => {
-        arr->Js.Array2.push(CountryAndPincode(options))->ignore
-        arr->Js.Array2.filter(item =>
-          switch item {
-          | AddressPincode
-          | AddressCountry(_) => false
-          | _ => true
-          }
-        )
-      }
-    | (_, _) => arr
-    }
+let getPaymentMethodName = (~paymentMethodType, ~paymentMethodName) => {
+  if paymentMethodType == "bank_debit" {
+    paymentMethodName->Js.String2.replace("_debit", "")
+  } else if paymentMethodType == "bank_transfer" {
+    paymentMethodName->Js.String2.replace("_transfer", "")
+  } else {
+    paymentMethodName
   }
-  newArr
 }

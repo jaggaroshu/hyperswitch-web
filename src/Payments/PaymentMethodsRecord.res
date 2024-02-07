@@ -21,19 +21,31 @@ type paymentMethodsFields =
   | AddressCountry(array<string>)
   | BlikCode
   | Currency(array<string>)
+  | CardNumber
+  | CardExpiryMonth
+  | CardExpiryYear
+  | CardExpiryMonthAndYear
+  | CardCvc
+  | CardExpiryAndCvc
 
 let getPaymentMethodsFieldsOrder = paymentMethodField => {
   switch paymentMethodField {
-  | AddressLine1 => 1
-  | AddressLine2 => 2
-  | AddressCity => 3
-  | AddressState => 4
-  | AddressCountry(_) => 5
-  | AddressPincode => 6
-  | StateAndCity => 4
-  | CountryAndPincode(_) => 5
+  | CardNumber => 0
+  | CardExpiryMonth => 1
+  | CardExpiryYear => 1
+  | CardExpiryMonthAndYear => 1
+  | CardCvc => 2
+  | CardExpiryAndCvc => 2
+  | AddressLine1 => 4
+  | AddressLine2 => 5
+  | AddressCity => 6
+  | AddressState => 7
+  | AddressCountry(_) => 8
+  | AddressPincode => 9
+  | StateAndCity => 7
+  | CountryAndPincode(_) => 8
   | InfoElement => 99
-  | _ => 0
+  | _ => 3
   }
 }
 
@@ -110,6 +122,13 @@ let paymentMethodsFields = [
     miniIcon: None,
   },
   {
+    paymentMethodName: "apple_pay",
+    fields: [],
+    icon: Some(icon("apple_pay", ~size=19, ~width=25)),
+    displayName: "Apple Pay",
+    miniIcon: None,
+  },
+  {
     paymentMethodName: "mb_way",
     fields: [SpecialField(<PhoneNumberPaymentInput />), InfoElement],
     icon: Some(icon("mbway", ~size=19)),
@@ -168,7 +187,7 @@ let paymentMethodsFields = [
   {
     paymentMethodName: "sofort",
     icon: Some(icon("sofort", ~size=19)),
-    fields: [FullName, Email, Country, InfoElement],
+    fields: [InfoElement],
     displayName: "Sofort",
     miniIcon: None,
   },
@@ -211,7 +230,7 @@ let paymentMethodsFields = [
     paymentMethodName: "eps",
     icon: Some(icon("eps", ~size=19, ~width=25)),
     displayName: "EPS",
-    fields: [Bank, FullName, InfoElement],
+    fields: [InfoElement],
     miniIcon: None,
   },
   {
@@ -302,7 +321,7 @@ let paymentMethodsFields = [
     paymentMethodName: "ideal",
     icon: Some(icon("ideal", ~size=19, ~width=25)),
     displayName: "iDEAL",
-    fields: [Bank, FullName, InfoElement],
+    fields: [InfoElement],
     miniIcon: None,
   },
   {
@@ -448,9 +467,23 @@ let paymentMethodsFields = [
   {
     paymentMethodName: "open_banking_uk",
     icon: Some(icon("open_banking", ~size=19, ~width=50)),
-    displayName: "Open Banking UK",
-    fields: [Country, InfoElement],
+    displayName: "Open Banking",
+    fields: [InfoElement],
     miniIcon: Some(icon("open_banking", ~size=19)),
+  },
+  {
+    paymentMethodName: "evoucher",
+    icon: Some(icon("cashtocode", ~size=50)),
+    displayName: "E-Voucher",
+    fields: [InfoElement],
+    miniIcon: Some(icon("cashtocode", ~size=19)),
+  },
+  {
+    paymentMethodName: "pix_transfer",
+    fields: [InfoElement],
+    icon: Some(icon("pix", ~size=26, ~width=40)),
+    displayName: "Pix",
+    miniIcon: None,
   },
 ]
 
@@ -461,20 +494,24 @@ type required_fields = {
   value: string,
 }
 
-let getPaymentMethodsFieldTypeFromString = str => {
-  switch str {
-  | "user_email_address" => Email
-  | "user_full_name" => FullName
-  | "user_country" => Country
-  | "user_bank" => Bank
-  | "user_phone_number" => PhoneNumber
-  | "user_address_line1" => AddressLine1
-  | "user_address_line2" => AddressLine2
-  | "user_address_city" => AddressCity
-  | "user_address_pincode" => AddressPincode
-  | "user_address_state" => AddressState
-  | "user_blik_code" => BlikCode
-  | "user_billing_name" => BillingName
+let getPaymentMethodsFieldTypeFromString = (str, isBancontact) => {
+  switch (str, isBancontact) {
+  | ("user_email_address", _) => Email
+  | ("user_full_name", _) => FullName
+  | ("user_country", _) => Country
+  | ("user_bank", _) => Bank
+  | ("user_phone_number", _) => PhoneNumber
+  | ("user_address_line1", _) => AddressLine1
+  | ("user_address_line2", _) => AddressLine2
+  | ("user_address_city", _) => AddressCity
+  | ("user_address_pincode", _) => AddressPincode
+  | ("user_address_state", _) => AddressState
+  | ("user_blik_code", _) => BlikCode
+  | ("user_billing_name", _) => BillingName
+  | ("user_card_number", true) => CardNumber
+  | ("user_card_expiry_month", true) => CardExpiryMonth
+  | ("user_card_expiry_year", true) => CardExpiryYear
+  | ("user_card_cvc", true) => CardCvc
   | _ => None
   }
 }
@@ -492,14 +529,18 @@ let getPaymentMethodsFieldTypeFromDict = dict => {
       switch options->Belt.Array.get(0)->Belt.Option.getWithDefault("") {
       | "" => None
       | "ALL" => AddressCountry(Country.country->Js.Array2.map(item => item.countryName))
-      | _ => AddressCountry(options)
+      | _ => AddressCountry(
+          Country.country
+          ->Js.Array2.filter(item => options->Js.Array2.includes(item.isoAlpha2))
+          ->Js.Array2.map(item => item.countryName),
+        )
       }
     }
   | _ => None
   }
 }
 
-let getFieldType = dict => {
+let getFieldType = (dict, isBancontact) => {
   let fieldClass =
     dict
     ->Js.Dict.get("field_type")
@@ -512,18 +553,9 @@ let getFieldType = dict => {
     None
   | JSONNumber(_val) => None
   | JSONArray(_arr) => None
-  | JSONString(val) => val->getPaymentMethodsFieldTypeFromString
+  | JSONString(val) => val->getPaymentMethodsFieldTypeFromString(isBancontact)
 
   | JSONObject(dict) => dict->getPaymentMethodsFieldTypeFromDict
-  }
-}
-
-let getRequiredFieldsFromJson = dict => {
-  {
-    required_field: Utils.getString(dict, "required_field", ""),
-    display_name: Utils.getString(dict, "display_name", ""),
-    field_type: dict->getFieldType,
-    value: Utils.getString(dict, "value", ""),
   }
 }
 
@@ -533,35 +565,61 @@ let dynamicFieldsEnabledPaymentMethods = [
   "credit",
   "blik",
   "google_pay",
+  "apple_pay",
+  "bancontact_card",
+  "open_banking_uk",
+  "eps",
+  "ideal",
+  "sofort",
+  "pix_transfer",
 ]
+
+let getIsBillingField = requiredFieldType => {
+  switch requiredFieldType {
+  | AddressLine1
+  | AddressLine2
+  | AddressCity
+  | AddressPincode
+  | AddressState
+  | AddressCountry(_) => true
+  | _ => false
+  }
+}
+
+let getIsAnyBillingDetailEmpty = (requiredFields: array<required_fields>) => {
+  requiredFields->Js.Array2.reduce((acc, requiredField) => {
+    if getIsBillingField(requiredField.field_type) {
+      requiredField.value === "" || acc
+    } else {
+      acc
+    }
+  }, false)
+}
 
 let getPaymentMethodFields = (
   paymentMethod,
-  requiredFields,
+  requiredFields: array<required_fields>,
   ~isSavedCardFlow=false,
   ~isAllStoredCardsHaveName=false,
   (),
 ) => {
-  let requiredFieldsArr =
-    requiredFields
-    ->Utils.getDictFromJson
-    ->Js.Dict.values
-    ->Js.Array2.map(item => {
-      let requiredField = item->Utils.getDictFromJson->getRequiredFieldsFromJson
-      if requiredField.value === "" {
-        if (
-          isSavedCardFlow &&
-          requiredField.display_name === "card_holder_name" &&
-          isAllStoredCardsHaveName
-        ) {
-          None
-        } else {
-          requiredField.field_type
-        }
-      } else {
+  let isAnyBillingDetailEmpty = requiredFields->getIsAnyBillingDetailEmpty
+  let requiredFieldsArr = requiredFields->Js.Array2.map(requiredField => {
+    let isShowBillingField = getIsBillingField(requiredField.field_type) && isAnyBillingDetailEmpty
+    if requiredField.value === "" || isShowBillingField {
+      if (
+        isSavedCardFlow &&
+        requiredField.display_name === "card_holder_name" &&
+        isAllStoredCardsHaveName
+      ) {
         None
+      } else {
+        requiredField.field_type
       }
-    })
+    } else {
+      None
+    }
+  })
   requiredFieldsArr->Js.Array2.concat(
     (
       paymentMethodsFields
@@ -622,7 +680,7 @@ type paymentMethodTypes = {
   bank_names: array<string>,
   bank_debits_connectors: array<string>,
   bank_transfers_connectors: array<string>,
-  required_fields: Js.Json.t,
+  required_fields: array<required_fields>,
   surcharge_details: option<surchargeDetails>,
 }
 
@@ -657,7 +715,7 @@ let defaultPaymentMethodType = {
   bank_names: [],
   bank_debits_connectors: [],
   bank_transfers_connectors: [],
-  required_fields: Js.Json.null,
+  required_fields: [],
   surcharge_details: None,
 }
 
@@ -735,7 +793,7 @@ let getSurchargeDetails = dict => {
 
   if displayTotalSurchargeAmount !== 0.0 {
     Some({
-      displayTotalSurchargeAmount,
+      displayTotalSurchargeAmount: displayTotalSurchargeAmount,
     })
   } else {
     None
@@ -780,22 +838,42 @@ let getAchConnectors = (dict, str) => {
   ->getStrArray("elligible_connectors")
 }
 
+let getDynamicFieldsFromJsonDict = (dict, isBancontact) => {
+  let requiredFields =
+    Utils.getJsonFromDict(dict, "required_fields", Js.Json.null)
+    ->Utils.getDictFromJson
+    ->Js.Dict.values
+
+  requiredFields->Js.Array2.map(requiredField => {
+    let requiredFieldsDict = requiredField->Utils.getDictFromJson
+    {
+      required_field: requiredFieldsDict->Utils.getString("required_field", ""),
+      display_name: requiredFieldsDict->Utils.getString("display_name", ""),
+      field_type: requiredFieldsDict->getFieldType(isBancontact),
+      value: requiredFieldsDict->Utils.getString("value", ""),
+    }
+  })
+}
+
 let getPaymentMethodTypes = (dict, str) => {
   dict
   ->Js.Dict.get(str)
   ->Belt.Option.flatMap(Js.Json.decodeArray)
   ->Belt.Option.getWithDefault([])
   ->Belt.Array.keepMap(Js.Json.decodeObject)
-  ->Js.Array2.map(json => {
+  ->Js.Array2.map(jsonDict => {
+    let paymentMethodType = getString(jsonDict, "payment_method_type", "")
     {
-      payment_method_type: getString(json, "payment_method_type", ""),
-      payment_experience: getPaymentExperience(json, "payment_experience"),
-      card_networks: getCardNetworks(json, "card_networks"),
-      bank_names: getBankNames(json, "bank_names"),
-      bank_debits_connectors: getAchConnectors(json, "bank_debit"),
-      bank_transfers_connectors: getAchConnectors(json, "bank_transfer"),
-      required_fields: Utils.getJsonFromDict(json, "required_fields", Js.Json.null),
-      surcharge_details: json->getSurchargeDetails,
+      payment_method_type: paymentMethodType,
+      payment_experience: getPaymentExperience(jsonDict, "payment_experience"),
+      card_networks: getCardNetworks(jsonDict, "card_networks"),
+      bank_names: getBankNames(jsonDict, "bank_names"),
+      bank_debits_connectors: getAchConnectors(jsonDict, "bank_debit"),
+      bank_transfers_connectors: getAchConnectors(jsonDict, "bank_transfer"),
+      required_fields: jsonDict->getDynamicFieldsFromJsonDict(
+        paymentMethodType === "bancontact_card",
+      ),
+      surcharge_details: jsonDict->getSurchargeDetails,
     }
   })
 }
@@ -857,21 +935,22 @@ let buildFromPaymentList = (plist: list) => {
       paymentMethodObject.payment_method_types->Js.Array2.map(individualPaymentMethod => {
         let paymentMethodName = individualPaymentMethod.payment_method_type
         let bankNames = individualPaymentMethod.bank_names
-        let paymentExperience =
-          individualPaymentMethod.payment_experience->Js.Array2.map(experience => {
+        let paymentExperience = individualPaymentMethod.payment_experience->Js.Array2.map(
+          experience => {
             (experience.payment_experience_type, experience.eligible_connectors)
-          })
+          },
+        )
         {
-          paymentMethodName: paymentMethodName,
+          paymentMethodName,
           fields: getPaymentMethodFields(
             paymentMethodName,
             individualPaymentMethod.required_fields,
             (),
           ),
           paymentFlow: paymentExperience,
-          handleUserError: handleUserError,
-          methodType: methodType,
-          bankNames: bankNames,
+          handleUserError,
+          methodType,
+          bankNames,
         }
       })
     })
@@ -896,4 +975,11 @@ let getPaymentMethodTypeFromList = (~list: list, ~paymentMethod, ~paymentMethodT
   ).payment_method_types->Js.Array2.find(item => {
     item.payment_method_type == paymentMethodType
   })
+}
+
+let getCardNetwork = (~paymentMethodType, ~cardBrand) => {
+  paymentMethodType.card_networks
+  ->Js.Array2.filter(cardNetwork => cardNetwork.card_network === cardBrand)
+  ->Belt.Array.get(0)
+  ->Belt.Option.getWithDefault(defaultCardNetworks)
 }

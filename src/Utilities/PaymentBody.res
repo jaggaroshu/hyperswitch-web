@@ -11,10 +11,7 @@ let cardPaymentBody = (~cardNumber, ~month, ~year, ~cardHolderName, ~cvcNumber, 
           ("card_number", cardNumber->CardUtils.clearSpaces->Js.Json.string),
           ("card_exp_month", month->Js.Json.string),
           ("card_exp_year", year->Js.Json.string),
-          (
-            "card_holder_name",
-            cardHolderName === "" ? Js.Json.null : cardHolderName->Js.Json.string,
-          ),
+          ("card_holder_name", cardHolderName->Js.Json.string),
           ("card_cvc", cvcNumber->Js.Json.string),
           ("card_issuer", ""->Js.Json.string),
         ]
@@ -28,37 +25,9 @@ let cardPaymentBody = (~cardNumber, ~month, ~year, ~cardHolderName, ~cvcNumber, 
   ),
 ]
 
-let bancontactBody = (~cardNumber, ~month, ~year, ~cardHolderName) => [
+let bancontactBody = () => [
   ("payment_method", "bank_redirect"->Js.Json.string),
   ("payment_method_type", "bancontact_card"->Js.Json.string),
-  (
-    "payment_method_data",
-    [
-      (
-        "bank_redirect",
-        [
-          (
-            "bancontact_card",
-            [
-              ("card_number", cardNumber->CardUtils.clearSpaces->Js.Json.string),
-              ("card_exp_month", month->Js.Json.string),
-              ("card_exp_year", year->Js.Json.string),
-              (
-                "card_holder_name",
-                cardHolderName === "" ? Js.Json.null : cardHolderName->Js.Json.string,
-              ),
-            ]
-            ->Js.Dict.fromArray
-            ->Js.Json.object_,
-          ),
-        ]
-        ->Js.Dict.fromArray
-        ->Js.Json.object_,
-      ),
-    ]
-    ->Js.Dict.fromArray
-    ->Js.Json.object_,
-  ),
 ]
 
 let savedCardBody = (~paymentToken, ~customerId, ~cvcNumber) => [
@@ -1332,9 +1301,9 @@ let bizumBody = () => [
   ),
 ]
 
-let rewardBody = () => [
+let rewardBody = (~paymentMethodType) => [
   ("payment_method", "reward"->Js.Json.string),
-  ("payment_method_type", "classic"->Js.Json.string),
+  ("payment_method_type", paymentMethodType->Js.Json.string),
   ("payment_method_data", "reward"->Js.Json.string),
 ]
 
@@ -1461,7 +1430,7 @@ let cardRedirectBody = () => {
   ]
 }
 
-let openBankingUKBody = (~country) => {
+let openBankingUKBody = () => {
   [
     ("payment_method", "bank_redirect"->Js.Json.string),
     ("payment_method_type", "open_banking_uk"->Js.Json.string),
@@ -1470,14 +1439,27 @@ let openBankingUKBody = (~country) => {
       [
         (
           "bank_redirect",
-          [
-            (
-              "open_banking_uk",
-              [("country", country->Js.Json.string)]->Js.Dict.fromArray->Js.Json.object_,
-            ),
-          ]
+          [("open_banking_uk", Js.Dict.empty()->Js.Json.object_)]
           ->Js.Dict.fromArray
           ->Js.Json.object_,
+        ),
+      ]
+      ->Js.Dict.fromArray
+      ->Js.Json.object_,
+    ),
+  ]
+}
+
+let pixTransferBody = () => {
+  [
+    ("payment_method", "bank_transfer"->Js.Json.string),
+    ("payment_method_type", "pix"->Js.Json.string),
+    (
+      "payment_method_data",
+      [
+        (
+          "bank_transfer",
+          [("pix", Js.Dict.empty()->Js.Json.object_)]->Js.Dict.fromArray->Js.Json.object_,
         ),
       ]
       ->Js.Dict.fromArray
@@ -1545,9 +1527,11 @@ let getPaymentBody = (
   | "alma" => almaBody()
   | "atome" => atomeBody()
   | "multibanco" => multibancoBody(~email)
-  | "classic" => rewardBody()
+  | "classic" => rewardBody(~paymentMethodType=paymentMethod)
   | "card_redirect" => cardRedirectBody()
-  | "open_banking_uk" => openBankingUKBody(~country)
+  | "open_banking_uk" => openBankingUKBody()
+  | "evoucher" => rewardBody(~paymentMethodType=paymentMethod)
+  | "pix_transfer" => pixTransferBody()
   | _ => []
   }
 }

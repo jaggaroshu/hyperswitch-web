@@ -13,7 +13,7 @@ let isConfirmBlocked = Recoil.atom(. "isConfirmBlocked", false)
 let switchToCustomPod = Recoil.atom(. "switchToCustomPod", false)
 let selectedOptionAtom = Recoil.atom(. "selectedOption", "")
 let paymentTokenAtom = Recoil.atom(. "paymentToken", ("", ""))
-let showCardFeildsAtom = Recoil.atom(. "showCardFeilds", false)
+let showCardFieldsAtom = Recoil.atom(. "showCardFields", false)
 let phoneJson = Recoil.atom(. "phoneJson", Loading)
 let cardBrand = Recoil.atom(. "cardBrand", "")
 
@@ -36,6 +36,7 @@ let userPhoneNumber = Recoil.atom(.
   },
 )
 let isGooglePayReady = Recoil.atom(. "isGooglePayReady", false)
+let isApplePayReady = Recoil.atom(. "isApplePayReady", false)
 let userCountry = Recoil.atom(. "userCountry", "")
 let userBank = Recoil.atom(. "userBank", "")
 let userAddressline1 = Recoil.atom(. "userAddressline1", defaultFieldValues)
@@ -52,3 +53,20 @@ let isShowOrPayUsing = Recoil.atom(. "isShowOrPayUsing", false)
 let areRequiredFieldsValid = Recoil.atom(. "areRequiredFieldsValid", true)
 let areRequiredFieldsEmpty = Recoil.atom(. "areRequiredFieldsEmpty", false)
 let userBillingName = Recoil.atom(. "userBillingName", defaultFieldValues)
+
+type areOneClickWalletsRendered = {
+  isGooglePay: bool,
+  isApplePay: bool,
+  isPaypal: bool,
+}
+
+let defaultAreOneClickWalletsRendered = {
+  isGooglePay: false,
+  isApplePay: false,
+  isPaypal: false,
+}
+
+let areOneClickWalletsRendered = Recoil.atom(.
+  "areOneClickWalletsBtnRendered",
+  defaultAreOneClickWalletsRendered,
+)

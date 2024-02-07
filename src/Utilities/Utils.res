@@ -836,3 +836,5 @@ let isOtherElements = componentType => {
   componentType == "cardExpiry" ||
   componentType == "cardCvc"
 }
+
+let nbsp = `\u00A0`

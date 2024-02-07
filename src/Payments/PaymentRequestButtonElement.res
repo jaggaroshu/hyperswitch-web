@@ -80,7 +80,8 @@ let make = (~sessions, ~walletOptions, ~list: PaymentMethodsRecord.list) => {
               </SessionPaymentWrapper>
             | ApplePayWallet =>
               switch applePayToken {
-              | ApplePayTokenOptional(optToken) => <ApplePayLazy sessionObj=optToken list />
+              | ApplePayTokenOptional(optToken) =>
+                <ApplePayLazy sessionObj=optToken list paymentType=NONE walletOptions />
               | _ => React.null
               }
 
@@ -92,5 +93,6 @@ let make = (~sessions, ~walletOptions, ~list: PaymentMethodsRecord.list) => {
       </ErrorBoundary>
     })
     ->React.array}
+    <Surcharge list paymentMethod="wallet" paymentMethodType="google_pay" isForWallets=true />
   </div>
 }
