@@ -320,10 +320,9 @@ let make = (
                   mountedIframeRef->Window.iframePostMessage(msg)
                   resolve()
                 })
-                ->catch(err => {
-                  let exceptionMessage = err->Utils.formatException->Js.Json.stringify
+                ->catch(_ => {
                   logger.setLogInfo(
-                    ~value=exceptionMessage,
+                    ~value="TrustPay GooglePay Payment Sheet Error",
                     ~eventName=GOOGLE_PAY_FLOW,
                     ~paymentMethod="GOOGLE_PAY",
                     ~logType=ERROR,
@@ -336,10 +335,9 @@ let make = (
                 })
                 ->ignore
               } catch {
-              | err => {
-                  let exceptionMessage = err->Utils.formatException->Js.Json.stringify
+              | _ => {
                   logger.setLogInfo(
-                    ~value=exceptionMessage,
+                    ~value="TrustPay GooglePay Invoke Error",
                     ~eventName=GOOGLE_PAY_FLOW,
                     ~paymentMethod="GOOGLE_PAY",
                     ~logType=ERROR,
